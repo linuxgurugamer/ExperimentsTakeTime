@@ -1,2 +1,12 @@
-0.0.1
+0.0.0.1
 	Initial release
+
+0.0.1 
+	Added tracking window, to show all experiments which are active
+		Added skin toggle button
+		Added button to close the window (x in upper right)
+	Fixed Events bypassing mod (ie:  Adding experiment to an event and triggering by a key)
+	Added displaying screen message when experiment started
+
+TODO
+	Add module for ModuleResourceScanner

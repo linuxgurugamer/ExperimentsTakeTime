@@ -1,16 +1,17 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-
-using KSP_Log;
+using KSP.UI.Screens;
+using ClickThroughFix;
+using ToolbarControl_NS;
+using static ExperimentsTakeTime.RegisterToolbar;
 
 
 namespace ExperimentsTakeTime
 {
+
     public class ModuleTimedScienceExperiment : ModuleScienceExperiment
     {
-        internal static Log Log = null;
-
         const float WAIT_TIME = 1f;
 
         [KSPField(isPersistant = true)]
@@ -23,11 +24,16 @@ namespace ExperimentsTakeTime
 
         [KSPField]
         public string maxTimeToRun = "";
+
         [KSPField(isPersistant = true)]
         public float maxTimeToRunSecs = 0f;
 
+        [KSPField(isPersistant = true)]
+        public float calculatedTimeToRunSecs = 0f;
+
         [KSPField]
         public string delayBeforeAbort = "15s";
+
         [KSPField]
         public float delayBeforeAbortSecs = 15;
 
@@ -44,12 +50,42 @@ namespace ExperimentsTakeTime
         [KSPField(isPersistant = true)]
         public string displayString = "";
 
+        [KSPField(isPersistant = true)]
+        public int experimentCnt = 0;
+
+        [KSPField(isPersistant = true)]
+        public string expTitle = "";
+
         void ResetTimedExperiment()
         {
             Log.Info("ResetTimedExperiment");
             startTime = endTime = 0f;
             displayString = Events["StartExperiment"].guiName = experimentActionName;
+
+            TimedExperimentStatus.RemoveExperiment(experimentCnt);
+            experimentCnt = 0;
         }
+
+        [KSPAction("Deploy")]
+        new public void DeployAction(KSPActionParam actParams)
+        {
+            StartExperiment();
+        }
+
+        [KSPAction("#autoLOC_6001436")]
+        new public void ResetAction(KSPActionParam actParams)
+        {
+            Log.Info("ResetAction");
+            ResetTimedExperiment();
+        }
+
+        [KSPEvent(active = true, guiActive = true, guiName = "#autoLOC_6001436")]
+        new public void ResetExperiment()
+        {
+            Log.Info("ResetExperiment"); 
+            ResetTimedExperiment();
+        }
+
 
         [KSPEvent(active = true, guiActive = true, guiName = "Start experiment")]
         public void StartExperiment()
@@ -60,14 +96,25 @@ namespace ExperimentsTakeTime
                 {
                     timeOutsideValidSituation = 0;
                     startTime = Planetarium.GetUniversalTime();
+                    experimentCnt = TimedExperimentStatus.GetNextExperimentCnt;
+
+
                     if (maxTimeToRunSecs > 0)
+                    {
                         endTime = startTime + Random.Range(timeToRunSecs, maxTimeToRunSecs);
+                        calculatedTimeToRunSecs = (float)(endTime - startTime);
+                    }
                     else
+                    {
                         endTime = startTime + timeToRunSecs;
+                        calculatedTimeToRunSecs = (float)timeToRunSecs;
+                    }
 
-                    StartCoroutine(WatchExperiment());
+                       TimedExperimentStatus.AddExperiment(experimentCnt, this);
+
+                 StartCoroutine(WatchExperiment());
                     Events["StartExperiment"].guiName = "Starting";
-
+                    ScreenMessages.PostScreenMessage("Starting " + experiment.experimentTitle, 10);
                     StartCoroutine(SetFXModules(1f));
                 }
                 else
@@ -118,12 +165,6 @@ namespace ExperimentsTakeTime
             ResetTimedExperiment();
         }
 
-        new public void ResetAction(KSPActionParam actParams)
-        {
-            Log.Info("ResetAction");
-            base.ResetAction(actParams);
-            ResetTimedExperiment();
-        }
 
         bool ValidSituation()
         {
@@ -166,48 +207,57 @@ namespace ExperimentsTakeTime
                 }
                 else
                     timeOutsideValidSituation = 0;
-                if (Planetarium.GetUniversalTime() > endTime)
+                if (endTime > 0)
                 {
-                    base.DeployExperiment();
-                    Events["StartExperiment"].guiName = "Experiment completed";
-                    break;
-                }
-                else
-                {
-                    double timeLeftToRun = endTime - Planetarium.GetUniversalTime();
-                    float dd = 0, hh = 0, mm = 0;
-                    string timeLeftstr = "";
-                    if (timeLeftToRun >= Planetarium.fetch.Home.solarDayLength)
+                    if (Planetarium.GetUniversalTime() > endTime)
                     {
-                        dd = Mathf.Floor((float)timeLeftToRun * inverseSolarDayLength); //   / (float)Planetarium.fetch.Home.solarDayLength);
-                        timeLeftToRun -= dd * Planetarium.fetch.Home.solarDayLength;
-                        timeLeftstr = dd.ToString() + "d ";
+                        base.DeployExperiment();
+                        Events["StartExperiment"].guiName = "Experiment completed";
+                        TimedExperimentStatus.RemoveExperiment(experimentCnt);
+                        experimentCnt = 0;
+                        break;
                     }
-                    if (timeLeftToRun >= 3600)
-                    {
-                        hh = Mathf.Floor((float)timeLeftToRun * 0.000277777777777777777f); //   / 3600f);
-                        timeLeftToRun -= hh * 3600;
-                        timeLeftstr += hh.ToString("") + ":";
-                    }
-                    if (timeLeftToRun >= 60)
-                    {
-                        mm = Mathf.Floor((float)timeLeftToRun * 0.0166666666666667f); //  / 60f);
-                        timeLeftToRun -= mm * 60;
-                        if (timeLeftstr.Length > 0)
-                            timeLeftstr += mm.ToString("00") + ":";
-                        else
-                            timeLeftstr += mm.ToString("") + ":";
-                    }
-                    if (timeLeftstr.Length > 0)
-                        timeLeftstr += Mathf.Floor((float)timeLeftToRun).ToString("00");
                     else
-                        timeLeftstr += Mathf.Floor((float)timeLeftToRun).ToString("");
-                    Events["StartExperiment"].guiName = "Running: " + timeLeftstr;
+                    {
+                        double timeLeftToRun = endTime - Planetarium.GetUniversalTime();
+                        Events["StartExperiment"].guiName = "Running: " + FormatTime(timeLeftToRun);
+                    }
                 }
             }
             yield return null;
         }
 
+        internal static string FormatTime(double timeToFormat, bool doDays = true)
+        {
+            string timeLeftstr = "";
+            float dd = 0, hh = 0, mm = 0;
+            if (doDays && timeToFormat >= Planetarium.fetch.Home.solarDayLength)
+            {
+                dd = Mathf.Floor((float)timeToFormat * inverseSolarDayLength); //   / (float)Planetarium.fetch.Home.solarDayLength);
+                timeToFormat -= dd * Planetarium.fetch.Home.solarDayLength;
+                timeLeftstr = dd.ToString() + "d ";
+            }
+            if (timeToFormat >= 3600)
+            {
+                hh = Mathf.Floor((float)timeToFormat * 0.000277777777777777777f); //   / 3600f);
+                timeToFormat -= hh * 3600;
+                timeLeftstr += hh.ToString("") + ":";
+            }
+            if (timeToFormat >= 60)
+            {
+                mm = Mathf.Floor((float)timeToFormat * 0.0166666666666667f); //  / 60f);
+                timeToFormat -= mm * 60;
+                if (timeLeftstr.Length > 0)
+                    timeLeftstr += mm.ToString("00") + ":";
+                else
+                    timeLeftstr += mm.ToString("") + ":";
+            }
+            if (timeLeftstr.Length > 0)
+                timeLeftstr += Mathf.Floor((float)timeToFormat).ToString("00");
+            else
+                timeLeftstr += Mathf.Floor((float)timeToFormat).ToString("");
+            return timeLeftstr;
+        }
 
         float GetNum(string str)
         {
@@ -236,19 +286,16 @@ namespace ExperimentsTakeTime
         }
 
         List<IScalarModule> fxModules;
-        float inverseSolarDayLength;
+        internal static float inverseSolarDayLength;
         public void Start()
         {
-            if (Log == null)
-#if DEBUG
-                Log = new Log("ExperimentsTakeTime", Log.LEVEL.INFO);
-#else
-                Log = new Log("ExperimentsTakeTime", Log.LEVEL.ERROR);
-#endif
             Log.Info("Start");
             timeToRunSecs = GetNum(timeToRun);
             maxTimeToRunSecs = GetNum(maxTimeToRun);
             delayBeforeAbortSecs = GetNum(delayBeforeAbort);
+
+            expTitle = experiment.experimentTitle;
+
             Log.Info("Experiment: " + experiment.experimentTitle + ", timeToRunSecs: " + timeToRunSecs);
             Log.Info("Experiment: " + experiment.experimentTitle + ", maxTimeToRunSecs: " + maxTimeToRunSecs);
 
@@ -290,9 +337,28 @@ namespace ExperimentsTakeTime
             if (startTime == 0)
                 ResetTimedExperiment();
             else
+            {
                 Events["StartExperiment"].guiName = displayString;
+                //experimentCnt = TimedExperimentStatus.GetNextExperimentCnt;
+                TimedExperimentStatus.AddExperiment(experimentCnt, this);
+            }
             if (startTime > 0 && Planetarium.GetUniversalTime() < endTime)
                 StartCoroutine(WatchExperiment());
+        }
+
+        public override string GetInfo()
+        {
+            string str = base.GetInfo();
+            if (maxTimeToRunSecs == 0)
+            {
+                str += "\nTime to run: " + FormatTime(timeToRunSecs, false);
+            }
+            else
+            {
+                str += "\nMin time to run: " + FormatTime(timeToRunSecs, false) +
+                        "\nMax time to run: " + FormatTime(maxTimeToRunSecs, false);
+            }
+            return str;
         }
     }
 }
