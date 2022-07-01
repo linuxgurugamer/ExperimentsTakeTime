@@ -8,8 +8,8 @@
 	Fixed Events bypassing mod (ie:  Adding experiment to an event and triggering by a key)
 	Added displaying screen message when experiment started
 
-0.0.1.1 (unreleased)
+0.0.1.1
 	Renamed file to match ModuleTimedExperimentStatus
+	Fixed incorrect time for the GooExperiment
 
-TODO
-	Add module for ModuleResourceScanner
+
